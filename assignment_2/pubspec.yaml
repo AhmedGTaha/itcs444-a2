@@ -28,8 +28,9 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-  http: ^1.2.2
   shared_preferences: ^2.3.2
+  http: ^1.2.2
+  file_picker: ^8.0.3
   flutter:
     sdk: flutter
 

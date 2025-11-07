@@ -1,22 +1,20 @@
-// ITCS444 – Assignment #2: Campus Events Manager
+// ITCS444 – Assignment #2: Campus Events Manager (with SmartImage)
 // Paste this entire file as lib/main.dart in a new Flutter project.
-// Then add the dependency below to your pubspec.yaml and run `flutter pub get`.
-//
-// pubspec.yaml (add under dependencies:)
+// Then add these dependencies to your pubspec.yaml and run `flutter pub get`:
 //   shared_preferences: ^2.3.2
+//   http: ^1.2.2
 //
-// Optional: If you want image picking from gallery, also add:
-//   image_picker: ^1.1.2
-// (This code uses only a URL field to keep dependencies minimal.)
-//
-// Tested with Flutter 3.22+ (Material 3). If you use older Flutter, replace
-// SegmentedButton with a DropdownButton or ChoiceChips.
+// Android: ensure INTERNET permission in android/app/src/main/AndroidManifest.xml
+//   <uses-permission android:name="android.permission.INTERNET"/>
 
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:http/http.dart' as http;
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 
 void main() {
   runApp(const EventsApp());
@@ -60,7 +58,8 @@ class EventItem {
   String? organizer;
   int? maxAttendees;
   int attendees;
-  String? imageUrl; // keep it simple (no picker dependency)
+  String? imageUrl; // remote image
+  String? imagePath; // local device image path
   bool favorite;
 
   EventItem({
@@ -74,6 +73,7 @@ class EventItem {
     this.maxAttendees,
     this.attendees = 0,
     this.imageUrl,
+    this.imagePath,
     this.favorite = false,
   });
 
@@ -88,6 +88,7 @@ class EventItem {
         'maxAttendees': maxAttendees,
         'attendees': attendees,
         'imageUrl': imageUrl,
+        'imagePath': imagePath,
         'favorite': favorite,
       };
 
@@ -102,9 +103,11 @@ class EventItem {
         maxAttendees: m['maxAttendees'] as int?,
         attendees: (m['attendees'] as num?)?.toInt() ?? 0,
         imageUrl: (m['imageUrl'] as String?)?.trim().isEmpty == true ? null : m['imageUrl'] as String?,
+        imagePath: (m['imagePath'] as String?)?.trim().isEmpty == true ? null : m['imagePath'] as String?,
         favorite: m['favorite'] == true,
       );
 }
+
 
 // ========================= STORAGE =========================
 
@@ -138,7 +141,7 @@ class EventsApp extends StatelessWidget {
       title: 'Campus Events',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
+        colorSchemeSeed: Colors.blueGrey,
         brightness: Brightness.light,
       ),
       home: const EventsHomePage(),
@@ -181,9 +184,7 @@ class _EventsHomePageState extends State<EventsHomePage> {
   Future<void> _persist() async => _repo.save(_items);
 
   List<EventItem> get _visible {
-    final now = DateTime.now();
-    final list = _items.toList()
-      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    final list = _items.toList()..sort((a, b) => a.dateTime.compareTo(b.dateTime));
     switch (_filter) {
       case Filter.all:
         return list;
@@ -426,12 +427,23 @@ class _EventCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(event.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
-              if (event.imageUrl != null)
+              if (event.imagePath != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(
+                    File(event.imagePath!),
+                    height: 160,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox(height: 160, child: Center(child: Text('Image failed to load'))),
+                  ),
+                )
+              else if (event.imageUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: _SmartImage(url: event.imageUrl!, height: 160),
                 ),
-              if (event.imageUrl != null) const SizedBox(height: 8),
+              if (event.imagePath != null || event.imageUrl != null) const SizedBox(height: 8),
               Text(event.description, maxLines: 4, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 8),
               Wrap(
@@ -458,12 +470,10 @@ class _EventCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   IconButton.filledTonal(onPressed: () => onDec(event), icon: const Icon(Icons.remove)),
-                  
                   Padding(
                     padding: const EdgeInsets.all(5.0),
-                    child: Text('${event.attendees}', style: const TextStyle(fontFeatures: [])),
+                    child: Text('${event.attendees}'),
                   ),
-                  
                   IconButton.filled(onPressed: () => onInc(event), icon: const Icon(Icons.add)),
                 ],
               )
@@ -521,6 +531,7 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
   final _organizer = TextEditingController();
   final _maxAtt = TextEditingController();
   final _imageUrl = TextEditingController();
+  String? _imagePath; // local file path
 
   @override
   void initState() {
@@ -536,6 +547,7 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
       _organizer.text = e.organizer ?? '';
       _maxAtt.text = e.maxAttendees?.toString() ?? '';
       _imageUrl.text = e.imageUrl ?? '';
+      _imagePath = e.imagePath;
     }
   }
 
@@ -601,6 +613,7 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
       maxAttendees: max,
       attendees: existing?.attendees ?? 0,
       imageUrl: _imageUrl.text.trim().isEmpty ? null : _imageUrl.text.trim(),
+      imagePath: _imagePath,
       favorite: existing?.favorite ?? false,
     );
 
@@ -691,6 +704,41 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
               controller: _imageUrl,
               decoration: const InputDecoration(labelText: 'Image URL (optional)', prefixIcon: Icon(Icons.image)),
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final res = await FilePicker.platform.pickFiles(type: FileType.image);
+                      if (res != null && res.files.single.path != null) {
+                        setState(() {
+                          _imagePath = res.files.single.path;
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Pick from device'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (_imagePath != null)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => setState(() => _imagePath = null),
+                      icon: const Icon(Icons.clear),
+                      label: const Text('Remove local image'),
+                    ),
+                  ),
+              ],
+            ),
+            if (_imagePath != null) Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Selected: '+ (File(_imagePath!).uri.pathSegments.isNotEmpty ? File(_imagePath!).uri.pathSegments.last : _imagePath!),
+                style: const TextStyle(fontStyle: FontStyle.italic),
+              ),
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -713,11 +761,12 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
             )
           ],
         ),
-      ),
-    );
+      )
+      );
   }
 }
 
+// ========================= SMART IMAGE (hotlink/CORS-friendly) =========================
 class _SmartImage extends StatelessWidget {
   final String url;
   final double height;
@@ -728,12 +777,11 @@ class _SmartImage extends StatelessWidget {
     final resp = await http.get(
       uri,
       headers: {
-        // Some CDNs expect a browsery UA / referer before serving the asset:
         'User-Agent': 'Mozilla/5.0 (Flutter)',
-        'Referer': uri.scheme + '://' + uri.host,
+        'Referer': '${uri.scheme}://${uri.host}',
       },
     );
-    if (resp.statusCode != 200) {
+    if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
       throw Exception('HTTP ${resp.statusCode}');
     }
     return resp.bodyBytes;
@@ -758,7 +806,12 @@ class _SmartImage extends StatelessWidget {
         }
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.memory(snap.data!, height: height, width: double.infinity, fit: BoxFit.cover),
+          child: Image.memory(
+            snap.data!,
+            height: height,
+            width: double.infinity,
+            fit: BoxFit.cover,
+          ),
         );
       },
     );
