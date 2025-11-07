@@ -132,7 +132,3 @@ flutter run
 Course: ITCS 444 – Mobile App Development
 Assignment #2  |  Campus Events Manager
 
----
-
-Would you like me to include Markdown badges (Flutter version, license, etc.) and format it for GitHub presentation?
-
