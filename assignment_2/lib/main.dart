@@ -463,7 +463,12 @@ class _EventCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   IconButton.filledTonal(onPressed: () => onDec(event), icon: const Icon(Icons.remove)),
-                  Text('${event.attendees}', style: const TextStyle(fontFeatures: [])),
+                  
+                  Padding(
+                    padding: const EdgeInsets.all(5.0),
+                    child: Text('${event.attendees}', style: const TextStyle(fontFeatures: [])),
+                  ),
+                  
                   IconButton.filled(onPressed: () => onInc(event), icon: const Icon(Icons.add)),
                 ],
               )
