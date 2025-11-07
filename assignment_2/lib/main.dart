@@ -13,7 +13,8 @@
 // SegmentedButton with a DropdownButton or ChoiceChips.
 
 import 'dart:convert';
-
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -137,7 +138,7 @@ class EventsApp extends StatelessWidget {
       title: 'Campus Events',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.indigo,
+        colorSchemeSeed: Colors.blue,
         brightness: Brightness.light,
       ),
       home: const EventsHomePage(),
@@ -428,13 +429,7 @@ class _EventCard extends StatelessWidget {
               if (event.imageUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.network(event.imageUrl!, height: 160, width: double.infinity, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                            height: 160,
-                            alignment: Alignment.center,
-                            color: Colors.black12,
-                            child: const Text('Image failed to load'),
-                          )),
+                  child: _SmartImage(url: event.imageUrl!, height: 160),
                 ),
               if (event.imageUrl != null) const SizedBox(height: 8),
               Text(event.description, maxLines: 4, overflow: TextOverflow.ellipsis),
@@ -719,6 +714,53 @@ class _AddEditEventPageState extends State<AddEditEventPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SmartImage extends StatelessWidget {
+  final String url;
+  final double height;
+  const _SmartImage({required this.url, required this.height});
+
+  Future<Uint8List> _load() async {
+    final uri = Uri.parse(url);
+    final resp = await http.get(
+      uri,
+      headers: {
+        // Some CDNs expect a browsery UA / referer before serving the asset:
+        'User-Agent': 'Mozilla/5.0 (Flutter)',
+        'Referer': uri.scheme + '://' + uri.host,
+      },
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+    return resp.bodyBytes;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _load(),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return SizedBox(
+            height: height,
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError || snap.data == null) {
+          return SizedBox(
+            height: height,
+            child: const Center(child: Text('Image failed to load')),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.memory(snap.data!, height: height, width: double.infinity, fit: BoxFit.cover),
+        );
+      },
     );
   }
 }
